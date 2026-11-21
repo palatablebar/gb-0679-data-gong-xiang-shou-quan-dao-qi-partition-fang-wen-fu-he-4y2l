@@ -20,10 +20,13 @@ docker compose exec -T app pytest -q
 - 5. 分区判定：`/partitions`，`/api/partitions`。
 - 6. 访问对账：`/audit`，`/api/audit`。
 - 7. 审计归档：`/seals`，`/api/seals`。
+- 8. 交付分区：`/deliveries`，`/api/deliveries`。
 
 ## 核心规则
 
 拒绝规则优先于允许，授权必须同时命中资源、分区和生效窗；显式拒绝不得被宽授权覆盖。
+
+交付分区按来源行逐条复算，不做分区名授权：只有参与合并的全部来源行都已核准，才沿用允许结论；任一条未获准则整份分区不可发布；来源清单缺失或被隔离时保持待核。核准依据、核对结果与对外证据绑定同一来源清单（`source_list_sha256`），发布前与导出前各复核一次。
 
 ## 演示
 
@@ -37,6 +40,8 @@ docker compose exec -T app pytest -q
 输入列见 `docs/DATA-DICTIONARY.md`。项目包含dirty.csv、clean.csv、legacy.csv，统一走实际导入路径。上传限制4MB，拒绝不带时区的时间。业务键按字符串保留，Decimal参与计算，空值不会当零。
 
 `POST /api/runs` 接收sample或csv；`GET /api/runs`返回历史批次；`POST /api/runs/<id>/review`需要version与decision；`GET /api/runs/<id>/archive`返回唯一证据导出。
+
+`GET|POST /api/deliveries`返回每份交付分区的发布判定；`POST /api/deliveries/publish`只发布可发布分区（可传`run_id`与`partitions`来源清单）；`GET /api/deliveries/records`列出发布记录；`GET /api/deliveries/record/<partition_key>`含被替换的旧版；`GET /api/deliveries/record/<partition_key>/archive`导出该分区证据。
 
 ## 范围
 

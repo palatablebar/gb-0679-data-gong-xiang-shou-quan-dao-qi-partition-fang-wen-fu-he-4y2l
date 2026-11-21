@@ -13,6 +13,7 @@
 | M5 分区判定 | 查看并运行分区判定 | `/api/partitions` | `app/modules/m5_partitions/rules.py` | `tests/test_m5.py` |
 | M6 访问对账 | 查看并运行访问对账 | `/api/audit` | `app/modules/m6_audit/rules.py` | `tests/test_m6.py` |
 | M7 审计归档 | 查看并运行审计归档 | `/api/seals` | `app/modules/m7_seals/rules.py` | `tests/test_m7.py` |
+| M8 交付分区 | 逐份判定能否发布 | `/api/deliveries` | `app/modules/m8_deliveries/rules.py` | `tests/test_m8.py` |
 
 ## 陷阱登记
 
@@ -29,10 +30,23 @@
 | TRAP-07 | 上游结果空值 | 误报拒绝 | 隔离缺失 | `app/values.py` | `tests/test_m3.py::test_real_missing_decision_not_zero` |
 | TRAP-19 | 允许与拒绝重叠 | 后写覆盖 | 拒绝优先且排序证据 | `app/modules/m4_conflicts/rules.py` | `tests/test_m4.py::test_deny_priority_counterexample` |
 | TRAP-23 | 授权到期点 | 多放行一次 | 半开生效窗 | `app/modules/m3_grants/rules.py` | `tests/test_m3.py::test_expiry_endpoint_excluded` |
+| TRAP-27 | 分区名代替来源 | 按分区名重新授权，宽授权覆盖到期来源 | 逐来源复算，全部核准才沿用 | `app/modules/m8_deliveries/rules.py` | `tests/test_m8.py::test_name_allow_does_not_override_expired_grant` |
+| TRAP-28 | 来源清单不齐 | 缺失来源按名称放行或直接丢弃 | 保持待核，列出来源差额 | `app/modules/m8_deliveries/rules.py` | `tests/test_m8.py::test_source_shortfall_keeps_pending` |
+| TRAP-29 | 依据与证据脱钩 | 依据、核对、证据各算一遍 | 三处绑定同一来源清单摘要并在发布/导出前复核 | `app/modules/m8_deliveries/rules.py` | `tests/test_m8.py::test_evidence_binds_same_source_list` |
+| TRAP-30 | 重跑新增发布 | 每次运行插一条 | 幂等键复用已有记录 | `app/store.py` | `tests/test_m8.py::test_repeat_publish_reuses_record` |
+| TRAP-31 | 替换失败丢旧版 | 先删后写 | 单事务替换，旧版与依据入历史，失败回滚 | `app/store.py` | `tests/test_m8.py::test_failed_replacement_keeps_old_record` |
 
 ## 对账规则
 
 输入原始逻辑行=最终采纳来源行+隔离来源行+重复行+空白行+分段表头。派生记录用_sources保存完整来源，因此分组不丢行。业务预期合计与上游申报合计之差等于逐行差异之和。结果按输入摘要、规则版本及参数产生唯一批次，事务写入；同源重跑只复用已有批次。
+
+## 交付分区发布口径
+
+分区合并把多源数据压成交付分区，界面只剩分区名。判定按来源行逐条复算授权：同一交付分区的每一条来源都要同时命中主体、资源、分区窗与生效窗，且无显式拒绝。任一条不满足即整份分区不可发布；不采用“给最终分区名重新申请权限”的做法，因为分区名不是授权主体，重新申请可能命中覆盖到期时段的宽授权。分区名只用于对外标识，不参与授权匹配。
+
+来源清单（排序后的来源行号）是唯一依据：`basis.sources_sha256`、`reconciliation.sources_sha256`、`source_list_sha256` 必须相同，证据行 `_sources` 的并集必须等于该清单，`evidence_sha256` 覆盖清单、依据、核对与证据行。来源未补齐（隔离行、声明清单缺行、未覆盖全部来源行、行数未对平）时结论为待核，不发布也不撤销已发布版本。
+
+发布是幂等的：同一分区、同一批次、同一来源清单与依据得到同一幂等键，重跑复用已有记录、版本不增加。依据变化时新版本替换旧版，旧版连同依据与摘要写入 `publication_versions`；替换在单个事务中完成，失败回滚，旧版仍生效。
 
 ## 已知不覆盖
 
